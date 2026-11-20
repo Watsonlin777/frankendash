@@ -499,9 +499,7 @@
     
     <script>
         // Configuration
-        const API_BASE = 'http://127.0.0.1:8080';
         const REFRESH_INTERVAL = 60000; // 60 seconds
-        const DEMO_PASSWORD = 'frankendash-demo-2026'; // Demo credential
         
         // State
         let lastRefreshTime = null;
@@ -571,9 +569,16 @@
         // Fetch data from API
         async function fetchData(endpoint) {
             try {
-                const response = await fetch(`${API_BASE}${endpoint}`, {
-                    signal: AbortSignal.timeout(5000)
+                const response = await fetch(endpoint, {
+                    signal: AbortSignal.timeout(5000),
+                    credentials: 'same-origin' // Include cookies
                 });
+                
+                if (response.status === 401) {
+                    // Authentication required - show login gate
+                    showLoginGate();
+                    throw new Error('Authentication required');
+                }
                 
                 if (!response.ok) {
                     throw new Error(`HTTP ${response.status}`);
@@ -582,7 +587,10 @@
                 return await response.json();
             } catch (error) {
                 console.error(`Failed to fetch ${endpoint}:`, error);
-                return { error: error.message, status: 'error' };
+                if (error.message !== 'Authentication required') {
+                    return { error: error.message, status: 'error' };
+                }
+                throw error; // Re-throw auth errors
             }
         }
         
@@ -793,22 +801,27 @@
             lastRefreshTime = Math.floor(Date.now() / 1000);
             lastRefreshSpan.textContent = `Last refresh: ${formatRelativeTime(lastRefreshTime)}`;
             
-            // Fetch all data in parallel
-            const [healthData, phonesData, gatewayData, notificationsData] = await Promise.all([
-                fetchData('/api/health'),
-                fetchData('/api/phones'),
-                fetchData('/api/gateway'),
-                fetchData('/api/notifications')
-            ]);
-            
-            // Update panels
-            updateHealthStatus(healthData);
-            updatePhonesPanel(phonesData);
-            updateGatewayPanel(gatewayData);
-            updateNotificationsPanel(notificationsData);
-            
-            // Add system log entry
-            addLogEntry('System', 'Dashboard', 'success');
+            try {
+                // Fetch all data in parallel
+                const [healthData, phonesData, gatewayData, notificationsData] = await Promise.all([
+                    fetchData('/api/health'),
+                    fetchData('/api/phones'),
+                    fetchData('/api/gateway'),
+                    fetchData('/api/notifications')
+                ]);
+                
+                // Update panels
+                updateHealthStatus(healthData);
+                updatePhonesPanel(phonesData);
+                updateGatewayPanel(gatewayData);
+                updateNotificationsPanel(notificationsData);
+                
+                // Add system log entry
+                addLogEntry('System', 'Dashboard', 'success');
+            } catch (error) {
+                // Auth error will be caught by fetchData and show login gate
+                console.error('Refresh error:', error);
+            }
         }
         
         // Initialize dashboard
@@ -832,18 +845,64 @@
             console.log('Dashboard initialized');
         }
         
+        // Show login gate
+        function showLoginGate() {
+            loginGate.style.display = 'flex';
+            dashboard.style.display = 'none';
+            sessionStorage.removeItem('frankendash_authenticated');
+            
+            // Clear any existing interval
+            if (refreshInterval) {
+                clearInterval(refreshInterval);
+                refreshInterval = null;
+            }
+        }
+        
         // Login handler
-        function handleLogin() {
+        async function handleLogin() {
             const enteredPassword = demoPasswordInput.value.trim();
             
-            if (enteredPassword === DEMO_PASSWORD) {
-                isAuthenticated = true;
-                initializeDashboard();
+            if (!enteredPassword) {
+                alert('Please enter a demo credential.');
+                demoPasswordInput.focus();
+                return;
+            }
+            
+            try {
+                const response = await fetch('/api/demo-login', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ password: enteredPassword }),
+                    credentials: 'same-origin'
+                });
                 
-                // Store in session storage (for demo purposes)
-                sessionStorage.setItem('frankendash_authenticated', 'true');
-            } else {
-                alert('Incorrect demo credential. Please use the credential provided in the Devpost submission form.');
+                if (response.status === 200) {
+                    const data = await response.json();
+                    if (data.ok) {
+                        isAuthenticated = true;
+                        initializeDashboard();
+                        
+                        // Store in session storage
+                        sessionStorage.setItem('frankendash_authenticated', 'true');
+                    } else {
+                        alert('Incorrect demo credential. Please use the credential provided in the Devpost submission form.');
+                        demoPasswordInput.value = '';
+                        demoPasswordInput.focus();
+                    }
+                } else if (response.status === 401) {
+                    alert('Incorrect demo credential. Please use the credential provided in the Devpost submission form.');
+                    demoPasswordInput.value = '';
+                    demoPasswordInput.focus();
+                } else {
+                    alert('Login failed. Please try again.');
+                    demoPasswordInput.value = '';
+                    demoPasswordInput.focus();
+                }
+            } catch (error) {
+                console.error('Login error:', error);
+                alert('Login failed. Please try again.');
                 demoPasswordInput.value = '';
                 demoPasswordInput.focus();
             }
@@ -862,7 +921,8 @@
             isAuthenticated = true;
             initializeDashboard();
         } else {
-            // Focus password input
+            // Show login gate and focus password input
+            showLoginGate();
             demoPasswordInput.focus();
         }
         

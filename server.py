@@ -14,6 +14,8 @@ import urllib.error
 import subprocess
 import os
 import sys
+import secrets
+import hmac
 from datetime import datetime, timedelta
 from typing import Dict, Any, Optional, Tuple
 from http import HTTPStatus
@@ -21,6 +23,7 @@ from http import HTTPStatus
 # Configuration
 CACHE_TTL = 60  # seconds
 SOURCE_TIMEOUT = 5  # seconds per source
+SESSION_EXPIRE_HOURS = 12
 SERVER_PORT = 0  # Will be set by command line or default
 
 # Data cache with timestamp
@@ -37,6 +40,39 @@ _last_good = {
     'gateway': {'data': None, 'timestamp': 0},
     'notifications': {'data': None, 'timestamp': 0}
 }
+
+# Session storage (in-memory)
+_sessions = {}  # token -> expiry timestamp
+
+def cleanup_expired_sessions():
+    """Remove expired sessions from memory."""
+    current_time = time.time()
+    expired = [token for token, expiry in _sessions.items() if expiry < current_time]
+    for token in expired:
+        del _sessions[token]
+
+def validate_session(cookie_header: str) -> bool:
+    """Validate session token from cookie."""
+    if not cookie_header:
+        return False
+    
+    # Parse cookie
+    for cookie in cookie_header.split(';'):
+        cookie = cookie.strip()
+        if cookie.startswith('session='):
+            token = cookie[8:]  # Remove 'session='
+            cleanup_expired_sessions()
+            return token in _sessions
+    
+    return False
+
+def create_session() -> Tuple[str, float]:
+    """Create a new session token with expiry."""
+    token = secrets.token_urlsafe(32)
+    expiry = time.time() + (SESSION_EXPIRE_HOURS * 3600)
+    _sessions[token] = expiry
+    cleanup_expired_sessions()
+    return token, expiry
 
 def safe_get_json(url: str, timeout: int) -> Optional[Dict[str, Any]]:
     """Safely fetch JSON from a URL with timeout."""
@@ -114,32 +150,43 @@ def fetch_phones_data() -> Dict[str, Any]:
     except:
         data['sources']['adb_a'] = 'error'
     
-    # Check location data freshness
+    # Check location data freshness - read from phone B's directory
     location_files = []
     try:
-        for f in os.listdir('/root/life/raw/'):
+        raw_dir = '/root/life/phones/B/raw/'
+        for f in os.listdir(raw_dir):
             if f.startswith('raw_') and f.endswith('.jsonl'):
                 location_files.append(f)
         
         if location_files:
-            # Get newest file
-            location_files.sort(reverse=True)
-            newest = location_files[0]
-            file_time = os.path.getmtime(f'/root/life/raw/{newest}')
-            current_time = time.time()
-            hours_old = (current_time - file_time) / 3600
+            # Get newest file by modification time
+            newest_file = None
+            newest_mtime = 0
+            for f in location_files:
+                file_path = os.path.join(raw_dir, f)
+                mtime = os.path.getmtime(file_path)
+                if mtime > newest_mtime:
+                    newest_mtime = mtime
+                    newest_file = f
             
-            data['location_data'] = {
-                'newest_file': newest,
-                'age_hours': round(hours_old, 1),
-                'stale': hours_old > 2
-            }
-    except:
-        data['location_data'] = {'error': 'unavailable'}
+            if newest_file:
+                file_time = os.path.getmtime(os.path.join(raw_dir, newest_file))
+                current_time = time.time()
+                hours_old = (current_time - file_time) / 3600
+                
+                data['location_data'] = {
+                    'newest_file': newest_file,
+                    'age_hours': round(hours_old, 1),
+                    'stale': hours_old > 2
+                }
+        else:
+            data['location_data'] = {'error': 'no_files_found'}
+    except Exception as e:
+        data['location_data'] = {'error': f'unavailable: {str(e)}'}
     
-    # Check location watch state
+    # Check location watch state - read from phone B's state directory
     try:
-        with open('/root/life/location_watch_state.json', 'r') as f:
+        with open('/root/life/phones/B/state/location_watch_state.json', 'r') as f:
             watch_state = json.load(f)
             data['watch_state'] = watch_state
     except:
@@ -348,7 +395,15 @@ class FrankendashHandler(http.server.BaseHTTPRequestHandler):
     
     def do_GET(self):
         """Handle GET requests."""
-        if self.path == '/api/health':
+        # Serve static files
+        if self.path == '/':
+            self.serve_file('index.html', 'text/html')
+        elif self.path == '/index.html':
+            self.serve_file('index.html', 'text/html')
+        elif self.path == '/style.css':
+            self.serve_file('style.css', 'text/css')
+        # API endpoints require authentication
+        elif self.path == '/api/health':
             self.handle_health()
         elif self.path == '/api/phones':
             self.handle_phones()
@@ -356,51 +411,135 @@ class FrankendashHandler(http.server.BaseHTTPRequestHandler):
             self.handle_gateway()
         elif self.path == '/api/notifications':
             self.handle_notifications()
-        elif self.path == '/':
-            self.handle_root()
         else:
             self.send_error(HTTPStatus.NOT_FOUND, "Endpoint not found")
     
+    def do_POST(self):
+        """Handle POST requests."""
+        if self.path == '/api/demo-login':
+            self.handle_demo_login()
+        else:
+            self.send_error(HTTPStatus.NOT_FOUND, "Endpoint not found")
+    
+    def serve_file(self, filename: str, content_type: str):
+        """Serve a static file."""
+        try:
+            filepath = os.path.join(os.path.dirname(__file__), filename)
+            with open(filepath, 'rb') as f:
+                content = f.read()
+            
+            self.send_response(HTTPStatus.OK)
+            self.send_header('Content-Type', content_type)
+            self.send_header('Content-Length', str(len(content)))
+            self.end_headers()
+            self.wfile.write(content)
+        except FileNotFoundError:
+            self.send_error(HTTPStatus.NOT_FOUND, f"File not found: {filename}")
+        except Exception as e:
+            self.send_error(HTTPStatus.INTERNAL_SERVER_ERROR, f"Error reading file: {str(e)}")
+    
+    def handle_demo_login(self):
+        """Handle POST /api/demo-login."""
+        try:
+            content_length = int(self.headers.get('Content-Length', 0))
+            if content_length > 1024:  # Limit request size
+                self.send_error(HTTPStatus.BAD_REQUEST, "Request too large")
+                return
+            
+            post_data = self.rfile.read(content_length).decode('utf-8')
+            data = json.loads(post_data)
+            password = data.get('password', '')
+            
+            # Get DEMO_PASSWORD from environment
+            demo_password = os.environ.get('DEMO_PASSWORD', '')
+            
+            if not demo_password:
+                self.send_error(HTTPStatus.INTERNAL_SERVER_ERROR, "Server misconfigured")
+                return
+            
+            # Validate password with constant-time comparison
+            if hmac.compare_digest(password, demo_password):
+                # Create session
+                token, expiry = create_session()
+                
+                # Set cookie
+                cookie = (
+                    f'session={token}; '
+                    f'Path=/; '
+                    f'SameSite=Lax; '
+                    f'HttpOnly; '
+                    f'Max-Age={int(SESSION_EXPIRE_HOURS * 3600)}'
+                )
+                
+                response = {'ok': True}
+                self.send_json_response(response, extra_headers={'Set-Cookie': cookie})
+            else:
+                response = {'ok': False, 'error': 'Invalid credential'}
+                self.send_json_response(response, status=HTTPStatus.UNAUTHORIZED)
+                
+        except json.JSONDecodeError:
+            response = {'ok': False, 'error': 'Invalid JSON'}
+            self.send_json_response(response, status=HTTPStatus.BAD_REQUEST)
+        except Exception as e:
+            response = {'ok': False, 'error': 'Internal server error'}
+            self.send_json_response(response, status=HTTPStatus.INTERNAL_SERVER_ERROR)
+    
+    def check_auth(self) -> bool:
+        """Check if request has valid session cookie."""
+        cookie_header = self.headers.get('Cookie', '')
+        return validate_session(cookie_header)
+    
     def handle_health(self):
         """Handle /api/health endpoint."""
+        if not self.check_auth():
+            response = {'ok': False, 'error': 'Authentication required'}
+            self.send_json_response(response, status=HTTPStatus.UNAUTHORIZED)
+            return
+        
         data = get_cached_data('health', fetch_health_data)
         self.send_json_response(data)
     
     def handle_phones(self):
         """Handle /api/phones endpoint."""
+        if not self.check_auth():
+            response = {'ok': False, 'error': 'Authentication required'}
+            self.send_json_response(response, status=HTTPStatus.UNAUTHORIZED)
+            return
+        
         data = get_cached_data('phones', fetch_phones_data)
         self.send_json_response(data)
     
     def handle_gateway(self):
         """Handle /api/gateway endpoint."""
+        if not self.check_auth():
+            response = {'ok': False, 'error': 'Authentication required'}
+            self.send_json_response(response, status=HTTPStatus.UNAUTHORIZED)
+            return
+        
         data = get_cached_data('gateway', fetch_gateway_data)
         self.send_json_response(data)
     
     def handle_notifications(self):
         """Handle /api/notifications endpoint."""
+        if not self.check_auth():
+            response = {'ok': False, 'error': 'Authentication required'}
+            self.send_json_response(response, status=HTTPStatus.UNAUTHORIZED)
+            return
+        
         data = get_cached_data('notifications', fetch_notifications_data)
         self.send_json_response(data)
     
-    def handle_root(self):
-        """Handle root endpoint - redirect to API docs."""
-        self.send_response(HTTPStatus.OK)
-        self.send_header('Content-Type', 'text/html')
-        self.end_headers()
-        self.wfile.write(b'<html><body><h1>Frankendash API</h1>')
-        self.wfile.write(b'<p>Available endpoints:</p>')
-        self.wfile.write(b'<ul>')
-        self.wfile.write(b'<li><a href="/api/health">/api/health</a> - Service health</li>')
-        self.wfile.write(b'<li><a href="/api/phones">/api/phones</a> - Phone status</li>')
-        self.wfile.write(b'<li><a href="/api/gateway">/api/gateway</a> - Gateway status</li>')
-        self.wfile.write(b'<li><a href="/api/notifications">/api/notifications</a> - Notifications</li>')
-        self.wfile.write(b'</ul>')
-        self.wfile.write(b'</body></html>')
-    
-    def send_json_response(self, data: Dict[str, Any]) -> None:
-        """Send JSON response."""
-        self.send_response(HTTPStatus.OK)
+    def send_json_response(self, data: Dict[str, Any], status: HTTPStatus = HTTPStatus.OK, 
+                          extra_headers: Dict[str, str] = None) -> None:
+        """Send JSON response with optional status and headers."""
+        self.send_response(status)
         self.send_header('Content-Type', 'application/json')
         self.send_header('Cache-Control', 'no-cache')
+        
+        if extra_headers:
+            for key, value in extra_headers.items():
+                self.send_header(key, value)
+        
         self.end_headers()
         self.wfile.write(json.dumps(data, indent=2).encode('utf-8'))
     
@@ -410,9 +549,20 @@ class FrankendashHandler(http.server.BaseHTTPRequestHandler):
         if '404' in args or '500' in args:
             super().log_message(format, *args)
 
+class ReusableTCPServer(socketserver.TCPServer):
+    """TCP server that allows address reuse."""
+    allow_reuse_address = True
+
 def main():
     """Main server entry point."""
     import argparse
+    
+    # Check DEMO_PASSWORD environment variable
+    demo_password = os.environ.get('DEMO_PASSWORD', '')
+    if not demo_password:
+        print("ERROR: DEMO_PASSWORD environment variable is not set or empty", file=sys.stderr)
+        print("Server cannot start without a demo password.", file=sys.stderr)
+        sys.exit(1)
     
     parser = argparse.ArgumentParser(description='Frankendash Backend Server')
     parser.add_argument('--port', type=int, default=8080, help='Port to listen on')
@@ -423,11 +573,12 @@ def main():
     print(f"Starting Frankendash server on {args.host}:{args.port}")
     print(f"Cache TTL: {CACHE_TTL}s, Source timeout: {SOURCE_TIMEOUT}s")
     print("Available endpoints:")
-    print("  /api/health - Service health")
-    print("  /api/phones - Phone status")
-    print("  /api/gateway - Gateway status")
-    print("  /api/notifications - Notifications")
-    print("  / - API documentation")
+    print("  / - Dashboard (index.html)")
+    print("  /api/demo-login [POST] - Demo authentication")
+    print("  /api/health - Service health (requires auth)")
+    print("  /api/phones - Phone status (requires auth)")
+    print("  /api/gateway - Gateway status (requires auth)")
+    print("  /api/notifications - Notifications (requires auth)")
     
     # Initial cache warm-up
     print("Warming up cache...")
@@ -441,8 +592,8 @@ def main():
         thread.daemon = True
         thread.start()
     
-    # Start server
-    with socketserver.TCPServer((args.host, args.port), FrankendashHandler) as httpd:
+    # Start server with reusable address
+    with ReusableTCPServer((args.host, args.port), FrankendashHandler) as httpd:
         print(f"Server started. Press Ctrl+C to stop.")
         try:
             httpd.serve_forever()

@@ -1,0 +1,876 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Frankendash - Mission Control</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+            background: #0a0a0a;
+            color: #e0e0e0;
+            line-height: 1.6;
+            padding: 20px;
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+        
+        .container {
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+            min-height: 100vh;
+        }
+        
+        /* Header */
+        .header {
+            background: #1a1a1a;
+            border-radius: 12px;
+            padding: 20px;
+            border: 1px solid #333;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 15px;
+        }
+        
+        .header h1 {
+            color: #00ff9d;
+            font-size: 24px;
+            font-weight: 600;
+        }
+        
+        .status-badge {
+            padding: 8px 16px;
+            border-radius: 20px;
+            font-weight: 600;
+            font-size: 14px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        
+        .status-badge::before {
+            content: '';
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            display: inline-block;
+        }
+        
+        .status-ok {
+            background: rgba(0, 255, 157, 0.1);
+            color: #00ff9d;
+            border: 1px solid rgba(0, 255, 157, 0.3);
+        }
+        
+        .status-ok::before {
+            background: #00ff9d;
+            animation: pulse 2s infinite;
+        }
+        
+        .status-degraded {
+            background: rgba(255, 193, 7, 0.1);
+            color: #ffc107;
+            border: 1px solid rgba(255, 193, 7, 0.3);
+        }
+        
+        .status-degraded::before {
+            background: #ffc107;
+        }
+        
+        .status-down {
+            background: rgba(255, 87, 87, 0.1);
+            color: #ff5757;
+            border: 1px solid rgba(255, 87, 87, 0.3);
+        }
+        
+        .status-down::before {
+            background: #ff5757;
+        }
+        
+        .refresh-info {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            font-size: 14px;
+            color: #888;
+        }
+        
+        .refresh-button {
+            background: #2a2a2a;
+            border: 1px solid #444;
+            color: #e0e0e0;
+            padding: 6px 12px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 14px;
+            transition: all 0.2s;
+        }
+        
+        .refresh-button:hover {
+            background: #3a3a3a;
+            border-color: #555;
+        }
+        
+        /* Main panels grid */
+        .panels-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
+            gap: 20px;
+        }
+        
+        @media (max-width: 768px) {
+            .panels-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+        
+        /* Panel styling */
+        .panel {
+            background: #1a1a1a;
+            border-radius: 12px;
+            padding: 20px;
+            border: 1px solid #333;
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+        }
+        
+        .panel-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding-bottom: 10px;
+            border-bottom: 1px solid #333;
+        }
+        
+        .panel-title {
+            font-size: 18px;
+            font-weight: 600;
+            color: #fff;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        
+        .panel-title::before {
+            content: '';
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            display: inline-block;
+        }
+        
+        .panel-phones .panel-title::before {
+            background: #00ff9d;
+        }
+        
+        .panel-gateway .panel-title::before {
+            background: #4dabf7;
+        }
+        
+        .panel-notifications .panel-title::before {
+            background: #ff6b9d;
+        }
+        
+        .panel-status {
+            font-size: 12px;
+            padding: 4px 8px;
+            border-radius: 4px;
+            background: #2a2a2a;
+            color: #888;
+        }
+        
+        .panel-content {
+            flex-grow: 1;
+        }
+        
+        /* Data items */
+        .data-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 10px 0;
+            border-bottom: 1px solid #2a2a2a;
+        }
+        
+        .data-item:last-child {
+            border-bottom: none;
+        }
+        
+        .data-label {
+            color: #aaa;
+            font-size: 14px;
+        }
+        
+        .data-value {
+            font-weight: 500;
+            font-size: 14px;
+        }
+        
+        .data-value.unknown {
+            color: #888;
+            font-style: italic;
+        }
+        
+        .data-value.up {
+            color: #00ff9d;
+        }
+        
+        .data-value.down {
+            color: #ff5757;
+        }
+        
+        .data-value.stale {
+            color: #ffc107;
+        }
+        
+        .data-value.online {
+            color: #00ff9d;
+        }
+        
+        .data-value.offline {
+            color: #ff5757;
+        }
+        
+        /* Stitch log footer */
+        .stitch-log {
+            background: #1a1a1a;
+            border-radius: 12px;
+            padding: 20px;
+            border: 1px solid #333;
+            margin-top: auto;
+        }
+        
+        .stitch-log h3 {
+            color: #fff;
+            font-size: 16px;
+            margin-bottom: 15px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        
+        .stitch-log h3::before {
+            content: '🧵';
+        }
+        
+        .log-entries {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+        
+        .log-entry {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 8px 12px;
+            background: #2a2a2a;
+            border-radius: 6px;
+            font-size: 13px;
+        }
+        
+        .log-panel {
+            font-weight: 500;
+            color: #fff;
+        }
+        
+        .log-transport {
+            color: #aaa;
+        }
+        
+        .log-time {
+            color: #888;
+            font-family: 'Monaco', 'Consolas', monospace;
+        }
+        
+        .log-status {
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-size: 11px;
+            font-weight: 600;
+        }
+        
+        .log-status.success {
+            background: rgba(0, 255, 157, 0.1);
+            color: #00ff9d;
+        }
+        
+        .log-status.error {
+            background: rgba(255, 87, 87, 0.1);
+            color: #ff5757;
+        }
+        
+        /* Login gate */
+        .login-gate {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(10, 10, 10, 0.95);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 1000;
+        }
+        
+        .login-box {
+            background: #1a1a1a;
+            border-radius: 12px;
+            padding: 40px;
+            border: 1px solid #333;
+            max-width: 400px;
+            width: 90%;
+            text-align: center;
+        }
+        
+        .login-box h2 {
+            color: #fff;
+            margin-bottom: 20px;
+        }
+        
+        .login-box p {
+            color: #aaa;
+            margin-bottom: 25px;
+            font-size: 14px;
+        }
+        
+        .demo-note {
+            background: rgba(0, 255, 157, 0.1);
+            border: 1px solid rgba(0, 255, 157, 0.3);
+            border-radius: 8px;
+            padding: 15px;
+            margin-bottom: 25px;
+            color: #00ff9d;
+            font-size: 13px;
+        }
+        
+        .login-input {
+            width: 100%;
+            padding: 12px;
+            background: #2a2a2a;
+            border: 1px solid #444;
+            border-radius: 6px;
+            color: #fff;
+            font-size: 14px;
+            margin-bottom: 20px;
+        }
+        
+        .login-button {
+            width: 100%;
+            padding: 12px;
+            background: #00ff9d;
+            border: none;
+            border-radius: 6px;
+            color: #000;
+            font-weight: 600;
+            font-size: 14px;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+        
+        .login-button:hover {
+            background: #00e68a;
+        }
+        
+        /* Animations */
+        @keyframes pulse {
+            0% { opacity: 1; }
+            50% { opacity: 0.5; }
+            100% { opacity: 1; }
+        }
+        
+        .fade-in {
+            animation: fadeIn 0.3s ease-in;
+        }
+        
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        
+        /* Loading states */
+        .loading {
+            color: #888;
+            font-style: italic;
+        }
+        
+        .timestamp {
+            color: #666;
+            font-size: 12px;
+            font-family: 'Monaco', 'Consolas', monospace;
+        }
+    </style>
+</head>
+<body>
+    <!-- Login Gate (Demo) -->
+    <div id="loginGate" class="login-gate">
+        <div class="login-box">
+            <h2>Frankendash Demo</h2>
+            <p>Enter the demo credential provided in the Devpost submission form to access the dashboard.</p>
+            
+            <div class="demo-note">
+                ⚠️ This is a demo instance. No real credentials or sensitive data are exposed.
+            </div>
+            
+            <input type="password" id="demoPassword" class="login-input" placeholder="Demo credential">
+            <button id="loginButton" class="login-button">Access Dashboard</button>
+            
+            <p style="margin-top: 20px; font-size: 12px; color: #666;">
+                Read-only dashboard • No commands sent • Privacy-first
+            </p>
+        </div>
+    </div>
+    
+    <!-- Main Dashboard -->
+    <div id="dashboard" class="container" style="display: none;">
+        <!-- Header -->
+        <div class="header">
+            <h1>Frankendash Mission Control</h1>
+            <div id="statusBadge" class="status-badge status-ok">
+                System OK
+            </div>
+            <div class="refresh-info">
+                <span id="lastRefresh">Last refresh: Just now</span>
+                <button id="manualRefresh" class="refresh-button">Refresh Now</button>
+                <span id="autoRefreshInfo">Auto-refresh: 60s</span>
+            </div>
+        </div>
+        
+        <!-- Main Panels -->
+        <div class="panels-grid">
+            <!-- Phones Panel -->
+            <div class="panel panel-phones">
+                <div class="panel-header">
+                    <h2 class="panel-title">Phones</h2>
+                    <span id="phonesStatus" class="panel-status">Checking...</span>
+                </div>
+                <div class="panel-content" id="phonesContent">
+                    <div class="loading">Loading phone status...</div>
+                </div>
+            </div>
+            
+            <!-- Gateway Panel -->
+            <div class="panel panel-gateway">
+                <div class="panel-header">
+                    <h2 class="panel-title">Gateway</h2>
+                    <span id="gatewayStatus" class="panel-status">Checking...</span>
+                </div>
+                <div class="panel-content" id="gatewayContent">
+                    <div class="loading">Loading gateway status...</div>
+                </div>
+            </div>
+            
+            <!-- Notifications Panel -->
+            <div class="panel panel-notifications">
+                <div class="panel-header">
+                    <h2 class="panel-title">Notifications</h2>
+                    <span id="notificationsStatus" class="panel-status">Checking...</span>
+                </div>
+                <div class="panel-content" id="notificationsContent">
+                    <div class="loading">Loading notifications...</div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Stitch Log Footer -->
+        <div class="stitch-log">
+            <h3>Stitch Log</h3>
+            <div class="log-entries" id="stitchLogEntries">
+                <div class="log-entry">
+                    <span class="log-panel">System</span>
+                    <span class="log-transport">Initializing dashboard</span>
+                    <span class="log-time">--:--:--</span>
+                    <span class="log-status success">Starting</span>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <script>
+        // Configuration
+        const API_BASE = 'http://127.0.0.1:8080';
+        const REFRESH_INTERVAL = 60000; // 60 seconds
+        const DEMO_PASSWORD = 'frankendash-demo-2026'; // Demo credential
+        
+        // State
+        let lastRefreshTime = null;
+        let refreshInterval = null;
+        let isAuthenticated = false;
+        
+        // DOM Elements
+        const loginGate = document.getElementById('loginGate');
+        const dashboard = document.getElementById('dashboard');
+        const demoPasswordInput = document.getElementById('demoPassword');
+        const loginButton = document.getElementById('loginButton');
+        const statusBadge = document.getElementById('statusBadge');
+        const lastRefreshSpan = document.getElementById('lastRefresh');
+        const manualRefreshBtn = document.getElementById('manualRefresh');
+        const autoRefreshInfo = document.getElementById('autoRefreshInfo');
+        
+        // Panel elements
+        const phonesStatus = document.getElementById('phonesStatus');
+        const phonesContent = document.getElementById('phonesContent');
+        const gatewayStatus = document.getElementById('gatewayStatus');
+        const gatewayContent = document.getElementById('gatewayContent');
+        const notificationsStatus = document.getElementById('notificationsStatus');
+        const notificationsContent = document.getElementById('notificationsContent');
+        const stitchLogEntries = document.getElementById('stitchLogEntries');
+        
+        // Format timestamp
+        function formatTime(timestamp) {
+            if (!timestamp) return '--:--:--';
+            const date = new Date(timestamp * 1000);
+            return date.toLocaleTimeString([], { hour12: false });
+        }
+        
+        function formatRelativeTime(timestamp) {
+            if (!timestamp) return 'unknown';
+            const now = Math.floor(Date.now() / 1000);
+            const diff = now - timestamp;
+            
+            if (diff < 60) return 'Just now';
+            if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
+            if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
+            return `${Math.floor(diff / 86400)}d ago`;
+        }
+        
+        // Add log entry
+        function addLogEntry(panel, transport, status, error = null) {
+            const entry = document.createElement('div');
+            entry.className = 'log-entry fade-in';
+            
+            const statusClass = status === 'success' ? 'success' : 'error';
+            const statusText = status === 'success' ? 'OK' : 'Failed';
+            
+            entry.innerHTML = `
+                <span class="log-panel">${panel}</span>
+                <span class="log-transport">${transport}</span>
+                <span class="log-time">${formatTime(Math.floor(Date.now() / 1000))}</span>
+                <span class="log-status ${statusClass}">${statusText}</span>
+            `;
+            
+            stitchLogEntries.insertBefore(entry, stitchLogEntries.firstChild);
+            
+            // Keep only last 10 entries
+            while (stitchLogEntries.children.length > 10) {
+                stitchLogEntries.removeChild(stitchLogEntries.lastChild);
+            }
+        }
+        
+        // Fetch data from API
+        async function fetchData(endpoint) {
+            try {
+                const response = await fetch(`${API_BASE}${endpoint}`, {
+                    signal: AbortSignal.timeout(5000)
+                });
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}`);
+                }
+                
+                return await response.json();
+            } catch (error) {
+                console.error(`Failed to fetch ${endpoint}:`, error);
+                return { error: error.message, status: 'error' };
+            }
+        }
+        
+        // Update phones panel
+        function updatePhonesPanel(data) {
+            if (data.error) {
+                phonesStatus.textContent = 'Error';
+                phonesStatus.style.color = '#ff5757';
+                phonesContent.innerHTML = `<div class="data-item">
+                    <span class="data-label">Status</span>
+                    <span class="data-value unknown">Failed to fetch</span>
+                </div>`;
+                addLogEntry('Phones', 'HTTP/API', 'error', data.error);
+                return;
+            }
+            
+            phonesStatus.textContent = data.status || 'Unknown';
+            phonesStatus.style.color = data.status === 'up' ? '#00ff9d' : 
+                                     data.status === 'down' ? '#ff5757' : '#ffc107';
+            
+            let html = '';
+            
+            // Phone A status
+            if (data.phone_a) {
+                html += `<div class="data-item">
+                    <span class="data-label">Phone A (PHB110)</span>
+                    <span class="data-value ${data.phone_a.status}">${data.phone_a.status || 'unknown'}</span>
+                </div>`;
+            }
+            
+            // SSH Tunnel status
+            if (data.sources && data.sources.ssh_a) {
+                html += `<div class="data-item">
+                    <span class="data-label">SSH Tunnel A</span>
+                    <span class="data-value ${data.sources.ssh_a}">${data.sources.ssh_a}</span>
+                </div>`;
+            }
+            
+            // ADB status
+            if (data.phone_a && data.phone_a.adb) {
+                html += `<div class="data-item">
+                    <span class="data-label">ADB Connection</span>
+                    <span class="data-value ${data.phone_a.adb}">${data.phone_a.adb}</span>
+                </div>`;
+            }
+            
+            // Location data
+            if (data.location_data) {
+                const age = data.location_data.age_hours || 0;
+                const staleClass = data.location_data.stale ? 'stale' : 'up';
+                const staleText = data.location_data.stale ? 'STALE' : 'Current';
+                
+                html += `<div class="data-item">
+                    <span class="data-label">Location Data</span>
+                    <span class="data-value ${staleClass}">${staleText} (${age.toFixed(1)}h)</span>
+                </div>`;
+            }
+            
+            // Timestamp
+            html += `<div class="data-item">
+                <span class="data-label">Updated</span>
+                <span class="timestamp">${formatRelativeTime(data.timestamp)}</span>
+            </div>`;
+            
+            phonesContent.innerHTML = html;
+            addLogEntry('Phones', 'SSH/ADB/JSON', 'success');
+        }
+        
+        // Update gateway panel
+        function updateGatewayPanel(data) {
+            if (data.error) {
+                gatewayStatus.textContent = 'Error';
+                gatewayStatus.style.color = '#ff5757';
+                gatewayContent.innerHTML = `<div class="data-item">
+                    <span class="data-label">Status</span>
+                    <span class="data-value unknown">Failed to fetch</span>
+                </div>`;
+                addLogEntry('Gateway', 'HTTP/API', 'error', data.error);
+                return;
+            }
+            
+            gatewayStatus.textContent = data.status === 'up' ? 'Operational' : 'Degraded';
+            gatewayStatus.style.color = data.status === 'up' ? '#00ff9d' : '#ffc107';
+            
+            let html = '';
+            
+            // Provider count
+            if (data.provider_count !== undefined) {
+                html += `<div class="data-item">
+                    <span class="data-label">Active Providers</span>
+                    <span class="data-value up">${data.provider_count}</span>
+                </div>`;
+            }
+            
+            // Today's usage
+            if (data.usage_today) {
+                const usage = data.usage_today;
+                
+                html += `<div class="data-item">
+                    <span class="data-label">Requests Today</span>
+                    <span class="data-value">${usage.requests || 0}</span>
+                </div>`;
+                
+                html += `<div class="data-item">
+                    <span class="data-label">Tokens Processed</span>
+                    <span class="data-value">${usage.tokens?.toLocaleString() || '0'}</span>
+                </div>`;
+                
+                if (usage.cost_usd !== undefined) {
+                    html += `<div class="data-item">
+                        <span class="data-label">Cost Today</span>
+                        <span class="data-value">$${usage.cost_usd.toFixed(4)}</span>
+                    </div>`;
+                }
+            }
+            
+            // Timestamp
+            html += `<div class="data-item">
+                <span class="data-label">Updated</span>
+                <span class="timestamp">${formatRelativeTime(data.timestamp)}</span>
+            </div>`;
+            
+            gatewayContent.innerHTML = html;
+            addLogEntry('Gateway', 'HTTP/API + CLI', 'success');
+        }
+        
+        // Update notifications panel
+        function updateNotificationsPanel(data) {
+            if (data.error) {
+                notificationsStatus.textContent = 'Error';
+                notificationsStatus.style.color = '#ff5757';
+                notificationsContent.innerHTML = `<div class="data-item">
+                    <span class="data-label">Status</span>
+                    <span class="data-value unknown">Failed to fetch</span>
+                </div>`;
+                addLogEntry('Notifications', 'File/Logs', 'error', data.error);
+                return;
+            }
+            
+            notificationsStatus.textContent = 'Active';
+            notificationsStatus.style.color = '#00ff9d';
+            
+            let html = '';
+            
+            // Recent pushes
+            if (data.recent_pushes && data.recent_pushes.length > 0) {
+                html += `<div class="data-item">
+                    <span class="data-label">Recent Pushes</span>
+                    <span class="data-value">${data.recent_pushes.length}</span>
+                </div>`;
+                
+                // Show most recent push
+                const recent = data.recent_pushes[0];
+                html += `<div class="data-item">
+                    <span class="data-label">Last Push</span>
+                    <span class="data-value">${recent.type || 'notification'} (${recent.status || 'sent'})</span>
+                </div>`;
+            }
+            
+            // Water reminders
+            if (data.water_reminders) {
+                html += `<div class="data-item">
+                    <span class="data-label">Water Reminders</span>
+                    <span class="data-value">${data.water_reminders.count || 0} today</span>
+                </div>`;
+            }
+            
+            // Log scan info
+            if (data.log_scan) {
+                html += `<div class="data-item">
+                    <span class="data-label">Log Activity</span>
+                    <span class="data-value">${data.log_scan.wecom_mentions || 0} mentions</span>
+                </div>`;
+            }
+            
+            // Timestamp
+            html += `<div class="data-item">
+                <span class="data-label">Updated</span>
+                <span class="timestamp">${formatRelativeTime(data.timestamp)}</span>
+            </div>`;
+            
+            notificationsContent.innerHTML = html;
+            addLogEntry('Notifications', 'File/Logs', 'success');
+        }
+        
+        // Update health status
+        function updateHealthStatus(data) {
+            if (data.error) {
+                statusBadge.className = 'status-badge status-down';
+                statusBadge.textContent = 'System Error';
+                return;
+            }
+            
+            const status = data.status || 'unknown';
+            statusBadge.textContent = status === 'ok' ? 'System OK' : 
+                                    status === 'degraded' ? 'System Degraded' : 'System Down';
+            
+            statusBadge.className = `status-badge status-${status}`;
+            
+            // Update service indicators
+            if (data.services) {
+                // Could add service status indicators here
+            }
+        }
+        
+        // Refresh all data
+        async function refreshAllData() {
+            lastRefreshTime = Math.floor(Date.now() / 1000);
+            lastRefreshSpan.textContent = `Last refresh: ${formatRelativeTime(lastRefreshTime)}`;
+            
+            // Fetch all data in parallel
+            const [healthData, phonesData, gatewayData, notificationsData] = await Promise.all([
+                fetchData('/api/health'),
+                fetchData('/api/phones'),
+                fetchData('/api/gateway'),
+                fetchData('/api/notifications')
+            ]);
+            
+            // Update panels
+            updateHealthStatus(healthData);
+            updatePhonesPanel(phonesData);
+            updateGatewayPanel(gatewayData);
+            updateNotificationsPanel(notificationsData);
+            
+            // Add system log entry
+            addLogEntry('System', 'Dashboard', 'success');
+        }
+        
+        // Initialize dashboard
+        function initializeDashboard() {
+            // Show dashboard, hide login
+            loginGate.style.display = 'none';
+            dashboard.style.display = 'flex';
+            
+            // Start auto-refresh
+            refreshInterval = setInterval(refreshAllData, REFRESH_INTERVAL);
+            
+            // Initial data load
+            refreshAllData();
+            
+            // Set up manual refresh button
+            manualRefreshBtn.addEventListener('click', refreshAllData);
+            
+            // Update auto-refresh info
+            autoRefreshInfo.textContent = `Auto-refresh: ${REFRESH_INTERVAL / 1000}s`;
+            
+            console.log('Dashboard initialized');
+        }
+        
+        // Login handler
+        function handleLogin() {
+            const enteredPassword = demoPasswordInput.value.trim();
+            
+            if (enteredPassword === DEMO_PASSWORD) {
+                isAuthenticated = true;
+                initializeDashboard();
+                
+                // Store in session storage (for demo purposes)
+                sessionStorage.setItem('frankendash_authenticated', 'true');
+            } else {
+                alert('Incorrect demo credential. Please use the credential provided in the Devpost submission form.');
+                demoPasswordInput.value = '';
+                demoPasswordInput.focus();
+            }
+        }
+        
+        // Event Listeners
+        loginButton.addEventListener('click', handleLogin);
+        demoPasswordInput.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') {
+                handleLogin();
+            }
+        });
+        
+        // Check if already authenticated (for page refresh)
+        if (sessionStorage.getItem('frankendash_authenticated') === 'true') {
+            isAuthenticated = true;
+            initializeDashboard();
+        } else {
+            // Focus password input
+            demoPasswordInput.focus();
+        }
+        
+        // Add initial log entry
+        addLogEntry('System', 'Dashboard', 'success');
+        
+        // Expose refresh function for testing
+        window.refreshDashboard = refreshAllData;
+    </script>
+</body>
+</html>

@@ -8,11 +8,11 @@
 - [ ] 2. Create public GitHub repo `frankendash` with MIT license +
   `/.kiro/specs/frankendash/{requirements,design,tasks}.md` copied from
   this draft.
-- [ ] 3. Verify data sources on the server (read-only inventory; record exact
+- [x] 3. Verify data sources on the server (read-only inventory; record exact
   endpoints and log paths).
-- [ ] 4. Backend: `/api/health` + three aggregators (phones / gateway /
+- [x] 4. Backend: `/api/health` + three aggregators (phones / gateway /
   notifications) with timeouts and unknown-on-failure.
-- [ ] 5. Frontend: one page, three panels, 60 s refresh, status header,
+- [x] 5. Frontend: one page, three panels, 60 s refresh, status header,
   stitch log, demo login gate.
 - [ ] 6. Deploy on the cloud server (port + security group — user approves)
   + public URL smoke test from outside.

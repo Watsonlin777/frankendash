@@ -1,0 +1,73 @@
+/* Additional styles for Frankendash */
+
+/* Responsive improvements */
+@media (max-width: 768px) {
+    .header {
+        flex-direction: column;
+        align-items: flex-start;
+    }
+    
+    .status-badge {
+        align-self: flex-start;
+    }
+    
+    .refresh-info {
+        align-self: stretch;
+        justify-content: space-between;
+    }
+}
+
+/* Print styles */
+@media print {
+    .login-gate,
+    .refresh-button,
+    .status-badge::before {
+        display: none !important;
+    }
+    
+    body {
+        background: white !important;
+        color: black !important;
+    }
+    
+    .panel, .header, .stitch-log {
+        border: 1px solid #ccc !important;
+        background: white !important;
+        color: black !important;
+    }
+    
+    .data-value.up,
+    .data-value.online {
+        color: darkgreen !important;
+    }
+    
+    .data-value.down,
+    .data-value.offline {
+        color: darkred !important;
+    }
+}
+
+/* Accessibility improvements */
+@media (prefers-reduced-motion: reduce) {
+    * {
+        animation-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.01ms !important;
+    }
+}
+
+/* High contrast mode */
+@media (prefers-contrast: high) {
+    .panel {
+        border: 2px solid #fff !important;
+    }
+    
+    .data-item {
+        border-bottom: 2px solid #fff !important;
+    }
+}
+
+/* Dark mode (already dark, but ensure consistency) */
+@media (prefers-color-scheme: dark) {
+    /* Already dark theme, ensure consistency */
+}
